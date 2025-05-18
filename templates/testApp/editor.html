@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Python Online Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/mode/python/python.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.12/codemirror.min.css">
+</head>
+<body>
+    <h2>Python Editor</h2>
+    <form id="editor-form">
+        <textarea id="code" name="code">print("Hello, World!")</textarea><br>
+        <label>Input:</label><br>
+        <textarea id="input" name="input"></textarea><br>
+        <button type="submit">Run Code</button>
+    </form>
+    <h3>Output:</h3>
+    <pre id="output"></pre>
+
+    <script>
+        var editor = CodeMirror.fromTextArea(document.getElementById("code"), {
+            mode: "python",
+            lineNumbers: true
+        });
+
+        document.getElementById("editor-form").addEventListener("submit", function(e) {
+            e.preventDefault();
+            fetch("/run/", {
+                method: "POST",
+                headers: { "X-CSRFToken": "{{ csrf_token }}" },
+                body: new URLSearchParams({
+                    code: editor.getValue(),
+                    input: document.getElementById("input").value
+                })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById("output").textContent = data.output;
+            });
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,1638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Online Code Editor</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/monokai.min.css" rel="stylesheet">
+    <style>
+        .editor-container {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+        .file-explorer {
+            width: 250px;
+            background: #1e1e1e;
+            color: #fff;
+            overflow-y: auto;
+            padding: 10px;
+            border-right: 1px solid #3d3d3d;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            min-width: 150px;
+            max-width: 500px;
+            resize: horizontal;
+            overflow: auto;
+        }
+        .editor-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 300px;
+            position: relative;
+            overflow: hidden;
+            height: 100%;
+        }
+        .resizer {
+            width: 5px;
+            background: #3d3d3d;
+            cursor: col-resize;
+            transition: background 0.2s;
+        }
+        .resizer:hover {
+            background: #4CAF50;
+        }
+        .resizer.active {
+            background: #4CAF50;
+        }
+        .CodeMirror {
+            height: 100% !important;
+            font-size: 14px;
+            flex: 1;
+            position: relative;
+        }
+        .tab-bar {
+            background: #2d2d2d;
+            padding: 5px;
+            display: flex;
+            gap: 5px;
+        }
+        .tab {
+            padding: 5px 10px;
+            background: #3d3d3d;
+            color: #fff;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .tab.active {
+            background: #4d4d4d;
+        }
+        .toolbar {
+            background: #2d2d2d;
+            padding: 10px;
+            display: flex;
+            gap: 10px;
+        }
+        .terminal-container {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 200px;
+            min-height: 100px;
+            max-height: 80vh;
+            background: #1e1e1e;
+            border-top: 1px solid #3d3d3d;
+            transform: translateY(100%);
+            transition: transform 0.3s ease, height 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            z-index: 1000;
+            overflow: hidden;
+        }
+        .terminal-container.visible {
+            transform: translateY(0);
+        }
+        .terminal-resizer {
+            height: 5px;
+            background: #3d3d3d;
+            cursor: row-resize;
+            transition: background 0.2s;
+            position: relative;
+            z-index: 1001;
+        }
+        .terminal-resizer:hover {
+            background: #4CAF50;
+        }
+        .terminal-resizer.active {
+            background: #4CAF50;
+        }
+        .terminal {
+            flex: 1;
+            color: #fff;
+            padding: 10px;
+            font-family: monospace;
+            overflow-y: auto;
+            background: #1e1e1e;
+        }
+        .children {
+            margin-left: 12px;
+            border-left: 1px solid #3d3d3d;
+            padding-left: 8px;
+            display: none;
+            width: 100%;
+        }
+        .children.visible {
+            display: block;
+        }
+        .file-tree-item {
+            padding: 2px 0;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            transition: background-color 0.2s;
+            position: relative;
+            border-left: 2px solid transparent;
+            font-size: 13px;
+            line-height: 22px;
+            user-select: none;
+            padding-left: 1px;
+            width: 100%;
+        }
+        .file-tree-item:hover {
+            background: #2a2d2e;
+        }
+        .file-tree-item .indent {
+            width: 12px;
+            height: 100%;
+            position: relative;
+        }
+        .file-tree-item .indent::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 1px;
+            background: #3d3d3d;
+        }
+        .file-tree-item i {
+            width: 16px;
+            text-align: center;
+            font-size: 14px;
+        }
+        .file-tree-item .fa-folder {
+            color: #c5c5c5;
+        }
+        .file-tree-item .fa-folder-open {
+            color: #c5c5c5;
+        }
+        .file-tree-item .fa-file {
+            color: #c5c5c5;
+        }
+        .file-tree-item .fa-project-diagram {
+            color: #4CAF50;
+        }
+        .file-tree-item.project {
+            border-left: 2px solid #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+        .file-tree-item.folder {
+            border-left: 2px solid transparent;
+        }
+        .file-tree-item.folder.open {
+            border-left: 2px solid #4CAF50;
+        }
+        .folder-actions {
+            display: flex;
+            position: absolute;
+            right: 2px;
+            gap: 2px;
+            background: #1e1e1e;
+            padding: 0 1px;
+        }
+        .folder-action-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            padding: 2px 4px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            font-size: 12px;
+        }
+        .folder-action-btn:hover {
+            opacity: 1;
+        }
+        .folder-action-btn.create-file {
+            color: #8ab4f8;
+        }
+        .folder-action-btn.create-folder {
+            color: #ffd700;
+        }
+        .file-actions {
+            display: none;
+            position: absolute;
+            right: 5px;
+            gap: 5px;
+            background: #1e1e1e;
+            padding: 0 4px;
+        }
+        .file-tree-item:hover .file-actions {
+            display: flex;
+        }
+        .file-action-btn {
+            background: none;
+            border: none;
+            color: #fff;
+            padding: 2px 4px;
+            cursor: pointer;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+            font-size: 12px;
+        }
+        .file-action-btn:hover {
+            opacity: 1;
+        }
+        .file-action-btn.delete {
+            color: #ff4444;
+        }
+        .file-action-btn.rename {
+            color: #44ff44;
+        }
+        .file-tree-item .file-info {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-width: 0;
+        }
+        .file-tree-item .file-name {
+            font-weight: normal;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .file-tree-item .file-path {
+            font-size: 11px;
+            color: #6b6b6b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .project-header {
+            padding: 8px;
+            background: #1a1a1a;
+            border-bottom: 1px solid #3d3d3d;
+            margin-bottom: 8px;
+        }
+        .project-header h5 {
+            margin: 0;
+            color: #4CAF50;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        .project-header .project-info {
+            font-size: 11px;
+            color: #6b6b6b;
+            margin-top: 4px;
+        }
+        .context-menu {
+            position: fixed;
+            background: #2d2d2d;
+            border: 1px solid #3d3d3d;
+            padding: 5px 0;
+            border-radius: 3px;
+        }
+        .context-menu-item {
+            padding: 5px 20px;
+            color: #fff;
+            cursor: pointer;
+        }
+        .context-menu-item:hover {
+            background: #3d3d3d;
+        }
+        /* Add styles for the modal */
+        .modal-content {
+            background: #2d2d2d !important;
+            color: #fff;
+        }
+        .modal-header {
+            border-bottom: 1px solid #3d3d3d;
+        }
+        .modal-footer {
+            border-top: 1px solid #3d3d3d;
+        }
+        .form-control {
+            background-color: #3d3d3d !important;
+            border: 1px solid #4d4d4d !important;
+            color: #fff !important;
+        }
+        .form-control:focus {
+            background-color: #3d3d3d !important;
+            border-color: #0d6efd !important;
+            color: #fff !important;
+            box-shadow: 0 0 0 0.25rem rgba(13, 110, 253, 0.25) !important;
+        }
+        .unsaved-indicator {
+            color: #ffd700;
+            font-size: 1.2em;
+            margin-right: 5px;
+        }
+        .tab {
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+            background: #3d3d3d;
+            color: #fff;
+            border-radius: 3px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        .tab.active {
+            background: #4d4d4d;
+        }
+        .tab:hover {
+            background: #4d4d4d;
+        }
+    </style>
+</head>
+<body class="bg-dark text-light">
+    <div class="editor-container">
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+            <div class="container-fluid">
+                <a class="navbar-brand" href="#">Code Editor</a>
+                <div class="d-flex">
+                    <button class="btn btn-outline-light me-2" id="openProjectBtn">
+                        <i class="fas fa-folder-open"></i> Open Project
+                    </button>
+                    <button class="btn btn-outline-light me-2" id="newProjectBtn">
+                        <i class="fas fa-folder-plus"></i> New Project
+                    </button>
+                    <button class="btn btn-outline-light" id="runBtn">
+                        <i class="fas fa-play"></i> Run
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="main-content">
+            <div class="file-explorer" id="fileExplorer">
+                <!-- File tree will be populated here -->
+            </div>
+            <div class="resizer" id="resizer"></div>
+            <div class="editor-area">
+                <div class="toolbar">
+                    <button class="btn btn-sm btn-outline-light" id="newFileBtn">
+                        <i class="fas fa-file"></i> New File
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" id="newFolderBtn">
+                        <i class="fas fa-folder"></i> New Folder
+                    </button>
+                    <button class="btn btn-sm btn-outline-light" id="saveBtn">
+                        <i class="fas fa-save"></i> Save
+                    </button>
+                    <div class="ms-auto">
+                        <button class="btn btn-sm btn-outline-light" id="terminalToggleBtn">
+                            <i class="fas fa-terminal"></i> Terminal
+                        </button>
+                    </div>
+                </div>
+
+                <div class="tab-bar" id="tabBar">
+                    <!-- Tabs will be populated here -->
+                </div>
+
+                <div id="editor"></div>
+
+                <div class="terminal-container" id="terminalContainer">
+                    <div class="terminal-resizer" id="terminalResizer"></div>
+                    <div class="terminal" id="terminal">
+                        <!-- Terminal output will be shown here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div class="modal fade" id="newProjectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title">New Project</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="text" class="form-control bg-dark text-light" id="projectName" placeholder="Project Name">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" id="createProjectBtn">Create</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="openProjectModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content bg-dark text-light">
+                <div class="modal-header">
+                    <h5 class="modal-title">Open Project</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="projectList" class="list-group">
+                        <!-- Projects will be listed here -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/javascript/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/xml/xml.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/css/css.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/clike/clike.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/matchbrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/edit/closebrackets.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldcode.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/fold/foldgutter.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/search.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/search/searchcursor.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/addon/dialog/dialog.min.js"></script>
+    <script>
+        // Initialize CodeMirror
+        const editor = CodeMirror(document.getElementById('editor'), {
+            mode: 'python',
+            theme: 'monokai',
+            lineNumbers: true,
+            autoCloseBrackets: true,
+            matchBrackets: true,
+            indentUnit: 4,
+            tabSize: 4,
+            lineWrapping: true,
+            foldGutter: true,
+            gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+            extraKeys: {
+                'Ctrl-Space': 'autocomplete',
+                'Ctrl-F': 'findPersistent',
+                'Ctrl-S': function(cm) {
+                    saveCurrentFile();
+                },
+                'Ctrl-`': function(cm) {
+                    toggleTerminal();
+                }
+            }
+        });
+
+        // State management
+        let currentProject = null;
+        let openFiles = new Map();
+        let activeFile = null;
+
+        // Event Listeners
+        document.getElementById('newProjectBtn').addEventListener('click', () => {
+            new bootstrap.Modal(document.getElementById('newProjectModal')).show();
+        });
+
+        document.getElementById('createProjectBtn').addEventListener('click', async () => {
+            const projectName = document.getElementById('projectName').value.trim();
+            if (!projectName) {
+                showError('Please enter a project name');
+                return;
+            }
+
+            const createProjectBtn = document.getElementById('createProjectBtn');
+            createProjectBtn.disabled = true;
+            createProjectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+
+            try {
+                console.log('Creating project:', projectName);
+                const csrfToken = getCookie('csrftoken');
+                console.log('CSRF Token:', csrfToken);
+                
+                const response = await fetch('/editor/projects/create/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken,
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ name: projectName })
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+                
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                console.log('Response content-type:', contentType);
+                
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Non-JSON response:', text);
+                    throw new Error('Server returned non-JSON response. Please check server logs.');
+                }
+                
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok && data.id) {
+                    currentProject = data;
+                    document.getElementById('projectName').value = '';
+                    bootstrap.Modal.getInstance(document.getElementById('newProjectModal')).hide();
+                    
+                    console.log('Project created, loading files...');
+                    try {
+                        await loadProjectFiles();
+                        showSuccess('Project created successfully!');
+                    } catch (error) {
+                        console.error('Error loading project files:', error);
+                        showError('Project created but failed to load files. Please refresh the page.');
+                    }
+                } else {
+                    console.error('Project creation failed:', data);
+                    showError(data.error || 'Failed to create project');
+                }
+            } catch (error) {
+                console.error('Error creating project:', error);
+                showError('An error occurred while creating the project: ' + error.message);
+            } finally {
+                createProjectBtn.disabled = false;
+                createProjectBtn.innerHTML = 'Create';
+            }
+        });
+
+        document.getElementById('newFileBtn').addEventListener('click', async () => {
+            if (!currentProject) {
+                showError('Please create or select a project first');
+                return;
+            }
+            
+            const fileName = prompt('Enter file name:');
+            if (!fileName) return;
+
+            try {
+                console.log('Creating file:', fileName);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ 
+                        name: fileName,
+                        is_folder: false
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    await loadProjectFiles();
+                    openFile(data);
+                    showSuccess('File created successfully!');
+                } else {
+                    console.error('File creation failed:', data);
+                    showError(data.error || 'Failed to create file');
+                }
+            } catch (error) {
+                console.error('Error creating file:', error);
+                showError('An error occurred while creating the file: ' + error.message);
+            }
+        });
+
+        document.getElementById('newFolderBtn').addEventListener('click', async () => {
+            if (!currentProject) {
+                showError('Please create or select a project first');
+                return;
+            }
+            
+            const folderName = prompt('Enter folder name:');
+            if (!folderName) return;
+
+            try {
+                console.log('Creating folder:', folderName);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ 
+                        name: folderName,
+                        is_folder: true
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    await loadProjectFiles();
+                    showSuccess('Folder created successfully!');
+                } else {
+                    console.error('Folder creation failed:', data);
+                    showError(data.error || 'Failed to create folder');
+                }
+            } catch (error) {
+                console.error('Error creating folder:', error);
+                showError('An error occurred while creating the folder: ' + error.message);
+            }
+        });
+
+        document.getElementById('saveBtn').addEventListener('click', async () => {
+            if (!activeFile) {
+                showError('No file is currently open');
+                return;
+            }
+
+            try {
+                console.log('Saving file:', activeFile);
+                const response = await fetch(`/editor/files/${activeFile.id}/save/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        content: editor.getValue()
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    const file = openFiles.get(activeFile.id);
+                    file.content = editor.getValue();
+                    openFiles.set(activeFile.id, file);
+                    updateUnsavedIndicator(activeFile.id, false);
+                    showSuccess('File saved successfully');
+                } else {
+                    showError(data.error || 'Failed to save file');
+                }
+            } catch (error) {
+                console.error('Error saving file:', error);
+                showError('An error occurred while saving the file');
+            }
+        });
+
+        document.getElementById('runBtn').addEventListener('click', async () => {
+            if (!activeFile) {
+                showError('No file is currently open');
+                return;
+            }
+
+            const terminal = document.getElementById('terminal');
+            terminal.style.display = 'block';
+            terminal.innerHTML = '<div class="text-light">Running code...</div>';
+
+            try {
+                const language = getFileLanguage(activeFile.name);
+                console.log('Running code:', {
+                    code: editor.getValue(),
+                    language: language.execution,
+                    filename: activeFile.name
+                });
+                
+                const response = await fetch('/editor/run/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        code: editor.getValue(),
+                        language: language.execution,
+                        filename: activeFile.name
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    if (data.error) {
+                        terminal.innerHTML = `<div class="text-danger">Error: ${data.error}</div>`;
+                    } else if (data.output) {
+                        terminal.innerHTML = `<div class="text-light">${data.output}</div>`;
+                    } else {
+                        terminal.innerHTML = '<div class="text-light">No output</div>';
+                    }
+                } else {
+                    console.error('Code execution failed:', data);
+                    terminal.innerHTML = `<div class="text-danger">Error: ${data.error || 'Failed to run code'}</div>`;
+                }
+            } catch (error) {
+                console.error('Error running code:', error);
+                terminal.innerHTML = `<div class="text-danger">Error: An error occurred while running the code: ${error.message}</div>`;
+            }
+        });
+
+        document.getElementById('terminalToggleBtn').addEventListener('click', toggleTerminal);
+
+        document.getElementById('openProjectBtn').addEventListener('click', async () => {
+            try {
+                const response = await fetch('/editor/projects/');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to load projects');
+                }
+                
+                const data = await response.json();
+                const projectList = document.getElementById('projectList');
+                projectList.innerHTML = '';
+                
+                if (data.projects && data.projects.length > 0) {
+                    data.projects.forEach(project => {
+                        const projectItem = document.createElement('div');
+                        projectItem.className = 'list-group-item list-group-item-action bg-dark text-light';
+                        projectItem.innerHTML = `
+                            <div class="d-flex justify-content-between align-items-center">
+                                <div>
+                                    <i class="fas fa-project-diagram me-2"></i>
+                                    ${project.name}
+                                </div>
+                                <small class="text-muted">
+                                    ${new Date(project.created_at).toLocaleString()}
+                                </small>
+                            </div>
+                        `;
+                        
+                        projectItem.addEventListener('click', () => openProject(project));
+                        projectList.appendChild(projectItem);
+                    });
+                } else {
+                    projectList.innerHTML = `
+                        <div class="text-center text-muted p-3">
+                            No projects found. Create a new project to get started.
+                        </div>
+                    `;
+                }
+                
+                new bootstrap.Modal(document.getElementById('openProjectModal')).show();
+            } catch (error) {
+                console.error('Error loading projects:', error);
+                showError('Failed to load projects: ' + error.message);
+            }
+        });
+
+        // Helper Functions
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        async function loadProjectFiles() {
+            if (!currentProject) {
+                console.warn('No project selected');
+                return;
+            }
+
+            try {
+                console.log('Loading files for project:', currentProject);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/`);
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Failed to load project files');
+                }
+                
+                const data = await response.json();
+                console.log('Project files data:', data);
+                
+                if (!data || !Array.isArray(data.files)) {
+                    throw new Error('Invalid response format from server');
+                }
+
+                const fileExplorer = document.getElementById('fileExplorer');
+                fileExplorer.innerHTML = ''; // Clear existing content
+                
+                // Add project header
+                const projectHeader = document.createElement('div');
+                projectHeader.className = 'project-header';
+                projectHeader.innerHTML = `
+                    <h5>
+                        <i class="fas fa-project-diagram"></i>
+                        ${currentProject.name}
+                    </h5>
+                    <div class="project-info">
+                        Created: ${new Date(currentProject.created_at).toLocaleString()}
+                    </div>
+                `;
+                fileExplorer.appendChild(projectHeader);
+                
+                // Sort files: folders first, then files, both alphabetically
+                const sortedFiles = [...data.files].sort((a, b) => {
+                    if (a.is_folder === b.is_folder) {
+                        return a.name.localeCompare(b.name);
+                    }
+                    return a.is_folder ? -1 : 1;
+                });
+                
+                sortedFiles.forEach(file => {
+                    fileExplorer.appendChild(renderFile(file));
+                });
+            } catch (error) {
+                console.error('Error loading project files:', error);
+                showError('Failed to load project files: ' + error.message);
+            }
+        }
+
+        async function openProject(project) {
+            try {
+                console.log('Opening project:', project);
+                currentProject = project;
+                
+                // Clear any open files
+                openFiles.clear();
+                document.getElementById('tabBar').innerHTML = '';
+                editor.setValue('');
+                activeFile = null;
+                
+                // Load project files
+                await loadProjectFiles();
+                showSuccess('Project opened successfully!');
+            } catch (error) {
+                console.error('Error opening project:', error);
+                showError('Failed to open project: ' + error.message);
+            }
+        }
+
+        function renderFile(file, level = 0, parentPath = '') {
+            const div = document.createElement('div');
+            div.className = `file-tree-item ${file.is_folder ? 'folder' : 'file'}`;
+            
+            // Create the main item container
+            const itemContainer = document.createElement('div');
+            itemContainer.className = 'd-flex align-items-center w-100';
+            itemContainer.style.cursor = 'pointer';
+            
+            // Add indentation for nested items
+            if (level > 0) {
+                const indent = document.createElement('div');
+                indent.style.width = `${level * 20}px`;
+                indent.style.minWidth = `${level * 20}px`;
+                itemContainer.appendChild(indent);
+            }
+            
+            // Add folder/file icon
+            const icon = document.createElement('i');
+            let iconClass = 'fas ';
+            if (file.is_folder) {
+                iconClass += 'fa-folder';
+                icon.style.color = '#c5c5c5';
+            } else {
+                // Determine file type icon
+                const ext = file.name.split('.').pop().toLowerCase();
+                switch (ext) {
+                    case 'py':
+                        iconClass += 'fa-python';
+                        break;
+                    case 'js':
+                        iconClass += 'fa-js';
+                        break;
+                    case 'html':
+                        iconClass += 'fa-html5';
+                        break;
+                    case 'css':
+                        iconClass += 'fa-css3';
+                        break;
+                    case 'json':
+                        iconClass += 'fa-code';
+                        break;
+                    case 'md':
+                        iconClass += 'fa-markdown';
+                        break;
+                    case 'txt':
+                        iconClass += 'fa-file-alt';
+                        break;
+                    case 'jpg':
+                    case 'jpeg':
+                    case 'png':
+                    case 'gif':
+                        iconClass += 'fa-file-image';
+                        break;
+                    default:
+                        iconClass += 'fa-file';
+                }
+                icon.style.color = '#c5c5c5';
+            }
+            icon.className = iconClass + ' me-2';
+            
+            // Create file info container
+            const fileInfo = document.createElement('div');
+            fileInfo.className = 'file-info';
+            
+            // Add name
+            const name = document.createElement('span');
+            name.className = 'file-name';
+            name.textContent = file.name;
+            
+            // Add path indicator if not at root level
+            if (parentPath) {
+                const pathIndicator = document.createElement('span');
+                pathIndicator.className = 'file-path';
+                pathIndicator.textContent = parentPath;
+                fileInfo.appendChild(pathIndicator);
+            }
+            
+            fileInfo.appendChild(name);
+            
+            // Add file/folder actions
+            const actions = document.createElement('div');
+            actions.className = file.is_folder ? 'folder-actions' : 'file-actions';
+            
+            if (file.is_folder) {
+                // Add create file button
+                const createFileBtn = document.createElement('button');
+                createFileBtn.className = 'folder-action-btn create-file';
+                createFileBtn.innerHTML = '<i class="fas fa-file-circle-plus"></i>';
+                createFileBtn.title = 'Create File';
+                createFileBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    createFileInFolder(file);
+                };
+                
+                // Add create folder button
+                const createFolderBtn = document.createElement('button');
+                createFolderBtn.className = 'folder-action-btn create-folder';
+                createFolderBtn.innerHTML = '<i class="fas fa-folder-circle-plus"></i>';
+                createFolderBtn.title = 'Create Folder';
+                createFolderBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    createFolderInFolder(file);
+                };
+                
+                actions.appendChild(createFileBtn);
+                actions.appendChild(createFolderBtn);
+            }
+            
+            // Add rename button
+            const renameBtn = document.createElement('button');
+            renameBtn.className = 'file-action-btn rename';
+            renameBtn.innerHTML = '<i class="fas fa-edit"></i>';
+            renameBtn.title = 'Rename';
+            renameBtn.onclick = (e) => {
+                e.stopPropagation();
+                renameFile(file);
+            };
+            
+            // Add delete button
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'file-action-btn delete';
+            deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+            deleteBtn.title = 'Delete';
+            deleteBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteFile(file);
+            };
+            
+            actions.appendChild(renameBtn);
+            actions.appendChild(deleteBtn);
+            
+            itemContainer.appendChild(icon);
+            itemContainer.appendChild(fileInfo);
+            div.appendChild(itemContainer);
+            div.appendChild(actions);
+            
+            if (file.is_folder) {
+                // Add click handler for folder
+                itemContainer.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const children = div.querySelector('.children');
+                    if (children) {
+                        children.classList.toggle('visible');
+                        // Toggle folder icon and open state
+                        icon.className = `fas ${children.classList.contains('visible') ? 'fa-folder-open' : 'fa-folder'} me-2`;
+                        div.classList.toggle('open');
+                    }
+                });
+                
+                // Add children container if there are children
+                if (file.children && file.children.length > 0) {
+                    const childrenDiv = document.createElement('div');
+                    childrenDiv.className = 'children';
+                    
+                    const newParentPath = parentPath ? `${parentPath}/${file.name}` : file.name;
+                    file.children.forEach(child => {
+                        childrenDiv.appendChild(renderFile(child, level + 1, newParentPath));
+                    });
+                    
+                    div.appendChild(childrenDiv);
+                }
+            } else {
+                // Add click handler for file
+                itemContainer.addEventListener('click', () => openFile(file));
+            }
+            
+            return div;
+        }
+
+        async function openFile(file) {
+            // Validate file object
+            if (!file) {
+                console.error('No file object provided');
+                showError('Invalid file: No file object provided');
+                return;
+            }
+
+            // Check if file is a folder
+            if (file.is_folder) {
+                console.log('Cannot open folder:', file.name);
+                return;
+            }
+
+            // Check if file is already open
+            if (openFiles.has(file.id)) {
+                console.log('File already open:', file.name);
+                setActiveFile(openFiles.get(file.id));
+                return;
+            }
+
+            try {
+                console.log('Opening file:', file);
+                const response = await fetch(`/editor/files/${file.id}/content/`);
+                console.log('Response status:', response.status);
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('Open file error:', errorData);
+                    throw new Error(errorData.error || 'Failed to open file');
+                }
+                
+                const data = await response.json();
+                console.log('File content data:', data);
+                
+                // Validate response data
+                if (!data) {
+                    throw new Error('Invalid response from server');
+                }
+
+                // Create a complete file object with all required properties
+                const completeFile = {
+                    id: file.id,
+                    name: file.name || data.name || 'Untitled',
+                    content: data.content || '',
+                    path: file.path || data.path || '',
+                    is_folder: false
+                };
+
+                // Validate the complete file object
+                if (!completeFile.id || !completeFile.name) {
+                    throw new Error('Invalid file data received from server');
+                }
+
+                console.log('Complete file object:', completeFile);
+                
+                // Store the file in openFiles
+                openFiles.set(completeFile.id, completeFile);
+                
+                // Add tab and set as active
+                addTab(completeFile);
+                setActiveFile(completeFile);
+                
+            } catch (error) {
+                console.error('Error opening file:', error);
+                showError('An error occurred while opening the file: ' + error.message);
+            }
+        }
+
+        function addTab(file) {
+            // Validate file object
+            if (!file) {
+                console.error('No file provided to addTab');
+                return;
+            }
+
+            if (!file.id || !file.name) {
+                console.error('Invalid file object in addTab:', file);
+                return;
+            }
+
+            const tabBar = document.getElementById('tabBar');
+            if (!tabBar) {
+                console.error('Tab bar element not found');
+                return;
+            }
+
+            const tab = document.createElement('div');
+            tab.className = 'tab';
+            tab.dataset.fileId = file.id;
+            tab.innerHTML = `
+                <span>${file.name}</span>
+                <i class="fas fa-times ms-2"></i>
+            `;
+
+            // Add unsaved changes indicator
+            const unsavedIndicator = document.createElement('span');
+            unsavedIndicator.className = 'unsaved-indicator ms-2';
+            unsavedIndicator.innerHTML = '•';
+            unsavedIndicator.style.display = 'none';
+            tab.insertBefore(unsavedIndicator, tab.querySelector('.fa-times'));
+
+            // Add click handlers
+            tab.addEventListener('click', () => setActiveFile(file));
+            tab.querySelector('.fa-times').addEventListener('click', (e) => {
+                e.stopPropagation();
+                closeFile(file);
+            });
+
+            tabBar.appendChild(tab);
+        }
+
+        function setActiveFile(file) {
+            // Validate file object
+            if (!file) {
+                console.warn('No file provided to setActiveFile');
+                return;
+            }
+
+            if (!file.id || !file.name) {
+                console.warn('Invalid file object in setActiveFile:', file);
+                return;
+            }
+
+            console.log('Setting active file:', file);
+            
+            // Save current file content before switching
+            if (activeFile) {
+                const currentContent = editor.getValue();
+                const savedFile = openFiles.get(activeFile.id);
+                if (savedFile && savedFile.content !== currentContent) {
+                    savedFile.content = currentContent;
+                    openFiles.set(activeFile.id, savedFile);
+                    updateUnsavedIndicator(activeFile.id, true);
+                }
+            }
+            
+            activeFile = file;
+            
+            // Set editor content and mode
+            editor.setValue(file.content || '');
+            
+            // Set language mode with error handling
+            try {
+                const language = getFileLanguage(file.name);
+                console.log('Setting language mode:', language.editor, 'for file:', file.name);
+                editor.setOption('mode', language.editor);
+            } catch (error) {
+                console.warn('Error setting language mode:', error);
+                editor.setOption('mode', 'text'); // Fallback to plain text
+            }
+            
+            // Update tab highlighting
+            document.querySelectorAll('.tab').forEach(tab => {
+                const tabName = tab.querySelector('span')?.textContent;
+                tab.classList.toggle('active', tabName === file.name);
+            });
+            
+            // Clear unsaved indicator for the new active file
+            updateUnsavedIndicator(file.id, false);
+        }
+
+        function updateUnsavedIndicator(fileId, hasUnsavedChanges) {
+            const tab = document.querySelector(`.tab[data-file-id="${fileId}"]`);
+            if (tab) {
+                const indicator = tab.querySelector('.unsaved-indicator');
+                if (indicator) {
+                    indicator.style.display = hasUnsavedChanges ? 'inline' : 'none';
+                }
+            }
+        }
+
+        // Add auto-save functionality
+        let autoSaveTimeout;
+        editor.on('change', () => {
+            if (!activeFile) return;
+            
+            // Clear previous timeout
+            if (autoSaveTimeout) {
+                clearTimeout(autoSaveTimeout);
+            }
+            
+            // Set new timeout for auto-save
+            autoSaveTimeout = setTimeout(() => {
+                const currentContent = editor.getValue();
+                const savedFile = openFiles.get(activeFile.id);
+                if (savedFile && savedFile.content !== currentContent) {
+                    savedFile.content = currentContent;
+                    openFiles.set(activeFile.id, savedFile);
+                    updateUnsavedIndicator(activeFile.id, true);
+                }
+            }, 1000); // Auto-save after 1 second of no changes
+        });
+
+        function closeFile(file) {
+            openFiles.delete(file.id);
+            const tab = Array.from(document.querySelectorAll('.tab')).find(
+                t => t.querySelector('span').textContent === file.name
+            );
+            if (tab) tab.remove();
+            
+            if (activeFile && activeFile.id === file.id) {
+                const nextFile = openFiles.values().next().value;
+                if (nextFile) {
+                    setActiveFile(nextFile);
+                } else {
+                    activeFile = null;
+                    editor.setValue('');
+                }
+            }
+        }
+
+        function getFileLanguage(filename) {
+            // Validate filename
+            if (!filename) {
+                console.warn('No filename provided to getFileLanguage');
+                return { execution: 'text', editor: 'text' };
+            }
+
+            if (typeof filename !== 'string') {
+                console.warn('Invalid filename type:', typeof filename);
+                return { execution: 'text', editor: 'text' };
+            }
+
+            // Get file extension
+            const parts = filename.split('.');
+            if (parts.length < 2) {
+                console.warn('Filename has no extension:', filename);
+                return { execution: 'text', editor: 'text' };
+            }
+
+            const ext = parts.pop().toLowerCase();
+            console.log('File extension:', ext);
+
+            // Map extension to language for syntax highlighting
+            const editorLanguageMap = {
+                'py': 'python',
+                'js': 'javascript',
+                'html': 'xml',
+                'css': 'css',
+                'java': 'text/x-java',
+                'cpp': 'text/x-c++src',
+                'c': 'text/x-csrc',
+                'h': 'text/x-csrc',
+                'hpp': 'text/x-c++src',
+                'php': 'php',
+                'rb': 'ruby',
+                'go': 'go',
+                'rs': 'rust',
+                'swift': 'swift',
+                'kt': 'text/x-kotlin',
+                'ts': 'text/typescript',
+                'jsx': 'jsx',
+                'tsx': 'text/typescript-jsx'
+            };
+
+            // Map extension to language for execution
+            const executionLanguageMap = {
+                'py': 'python',
+                'js': 'javascript',
+                'java': 'java',
+                'cpp': 'cpp',
+                'c': 'c',
+                'php': 'php',
+                'rb': 'ruby',
+                'go': 'go',
+                'rs': 'rust',
+                'swift': 'swift',
+                'kt': 'kotlin',
+                'ts': 'typescript'
+            };
+
+            // Get the language for execution
+            const executionLanguage = executionLanguageMap[ext] || 'text';
+            console.log('Execution language:', executionLanguage);
+
+            // Get the language for editor syntax highlighting
+            const editorLanguage = editorLanguageMap[ext] || 'text';
+            console.log('Editor language:', editorLanguage);
+
+            // Return both languages
+            return {
+                execution: executionLanguage,
+                editor: editorLanguage
+            };
+        }
+
+        function showTerminalOutput(output) {
+            const terminal = document.getElementById('terminal');
+            terminal.style.display = 'block';
+            terminal.innerHTML = `<div class="text-light">${output}</div>`;
+        }
+
+        function showError(message) {
+            console.error('Error:', message);
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'alert alert-danger alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+            errorDiv.style.zIndex = '9999';
+            errorDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(errorDiv);
+            setTimeout(() => errorDiv.remove(), 5000);
+        }
+
+        function showSuccess(message) {
+            console.log('Success:', message);
+            const successDiv = document.createElement('div');
+            successDiv.className = 'alert alert-success alert-dismissible fade show position-fixed top-0 start-50 translate-middle-x mt-3';
+            successDiv.style.zIndex = '9999';
+            successDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            document.body.appendChild(successDiv);
+            setTimeout(() => successDiv.remove(), 5000);
+        }
+
+        async function deleteFile(file) {
+            if (!confirm(`Are you sure you want to delete ${file.is_folder ? 'folder' : 'file'} "${file.name}"?`)) {
+                return;
+            }
+
+            try {
+                console.log('Deleting file/folder:', file);
+                const response = await fetch(`/editor/files/${file.id}/delete/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    // If the deleted file is currently open, close it
+                    if (activeFile && activeFile.id === file.id) {
+                        closeFile(file);
+                    }
+                    // Remove from open files if it was open
+                    openFiles.delete(file.id);
+                    // Reload the file tree
+                    await loadProjectFiles();
+                    showSuccess(`${file.is_folder ? 'Folder' : 'File'} deleted successfully`);
+                } else {
+                    showError(data.error || 'Failed to delete file/folder');
+                }
+            } catch (error) {
+                console.error('Error deleting file/folder:', error);
+                showError('An error occurred while deleting the file/folder: ' + error.message);
+            }
+        }
+
+        async function renameFile(file) {
+            const newName = prompt(`Enter new name for ${file.is_folder ? 'folder' : 'file'}:`, file.name);
+            if (!newName || newName === file.name) {
+                return;
+            }
+
+            try {
+                console.log('Renaming file/folder:', file, 'to:', newName);
+                const response = await fetch(`/editor/files/${file.id}/rename/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ new_name: newName })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    // Update the file in open files if it's open
+                    if (openFiles.has(file.id)) {
+                        const openFile = openFiles.get(file.id);
+                        openFile.name = newName;
+                        openFiles.set(file.id, openFile);
+                        
+                        // Update the tab name
+                        const tab = document.querySelector(`.tab[data-file-id="${file.id}"]`);
+                        if (tab) {
+                            tab.querySelector('span').textContent = newName;
+                        }
+                    }
+                    // Reload the file tree
+                    await loadProjectFiles();
+                    showSuccess(`${file.is_folder ? 'Folder' : 'File'} renamed successfully`);
+                } else {
+                    showError(data.error || 'Failed to rename file/folder');
+                }
+            } catch (error) {
+                console.error('Error renaming file/folder:', error);
+                showError('An error occurred while renaming the file/folder: ' + error.message);
+            }
+        }
+
+        async function createFileInFolder(parentFolder) {
+            const fileName = prompt('Enter file name:');
+            if (!fileName) return;
+
+            try {
+                console.log('Creating file in folder:', fileName, 'Parent:', parentFolder);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ 
+                        name: fileName,
+                        is_folder: false,
+                        parent_id: parentFolder.id
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    await loadProjectFiles();
+                    openFile(data);
+                    showSuccess('File created successfully!');
+                } else {
+                    console.error('File creation failed:', data);
+                    showError(data.error || 'Failed to create file');
+                }
+            } catch (error) {
+                console.error('Error creating file:', error);
+                showError('An error occurred while creating the file: ' + error.message);
+            }
+        }
+
+        async function createFolderInFolder(parentFolder) {
+            const folderName = prompt('Enter folder name:');
+            if (!folderName) return;
+
+            try {
+                console.log('Creating folder in folder:', folderName, 'Parent:', parentFolder);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ 
+                        name: folderName,
+                        is_folder: true,
+                        parent_id: parentFolder.id
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    await loadProjectFiles();
+                    showSuccess('Folder created successfully!');
+                } else {
+                    console.error('Folder creation failed:', data);
+                    showError(data.error || 'Failed to create folder');
+                }
+            } catch (error) {
+                console.error('Error creating folder:', error);
+                showError('An error occurred while creating the folder: ' + error.message);
+            }
+        }
+
+        function toggleTerminal() {
+            const terminalContainer = document.getElementById('terminalContainer');
+            const isVisible = terminalContainer.classList.contains('visible');
+            const editorElement = document.querySelector('.CodeMirror');
+            
+            if (isVisible) {
+                terminalContainer.classList.remove('visible');
+                if (editorElement) {
+                    editorElement.style.height = '100%';
+                }
+            } else {
+                terminalContainer.classList.add('visible');
+                if (editorElement) {
+                    const terminalHeight = parseInt(getComputedStyle(terminalContainer).height, 10);
+                    editorElement.style.height = `calc(100% - ${terminalHeight}px)`;
+                }
+            }
+        }
+
+        // Initialize
+        loadProjectFiles();
+
+        // Add resizer functionality
+        const resizer = document.getElementById('resizer');
+        const fileExplorer = document.getElementById('fileExplorer');
+        let isResizing = false;
+        let startX;
+        let startWidth;
+
+        resizer.addEventListener('mousedown', (e) => {
+            isResizing = true;
+            startX = e.pageX;
+            startWidth = parseInt(getComputedStyle(fileExplorer).width, 10);
+            resizer.classList.add('active');
+            document.body.style.cursor = 'col-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isResizing) return;
+
+            const width = startWidth + (e.pageX - startX);
+            if (width >= 150 && width <= 500) {
+                fileExplorer.style.width = width + 'px';
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isResizing) return;
+            isResizing = false;
+            resizer.classList.remove('active');
+            document.body.style.cursor = '';
+        });
+
+        // Add terminal resizer functionality
+        const terminalResizer = document.getElementById('terminalResizer');
+        const terminalContainer = document.getElementById('terminalContainer');
+        let isTerminalResizing = false;
+        let startY;
+        let startHeight;
+
+        terminalResizer.addEventListener('mousedown', (e) => {
+            isTerminalResizing = true;
+            startY = e.pageY;
+            startHeight = parseInt(getComputedStyle(terminalContainer).height, 10);
+            terminalResizer.classList.add('active');
+            document.body.style.cursor = 'row-resize';
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isTerminalResizing) return;
+
+            const height = startHeight - (e.pageY - startY);
+            const minHeight = 100;
+            const maxHeight = window.innerHeight * 0.8;
+            
+            if (height >= minHeight && height <= maxHeight) {
+                terminalContainer.style.height = height + 'px';
+                // Adjust editor height
+                const editorElement = document.querySelector('.CodeMirror');
+                if (editorElement) {
+                    editorElement.style.height = `calc(100% - ${height}px)`;
+                    editor.refresh(); // Refresh CodeMirror to update layout
+                }
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (!isTerminalResizing) return;
+            isTerminalResizing = false;
+            terminalResizer.classList.remove('active');
+            document.body.style.cursor = '';
+            // Refresh CodeMirror after resizing
+            editor.refresh();
+        });
+    </script>
+</body>
+</html> 
