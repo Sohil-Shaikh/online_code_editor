@@ -20,6 +20,7 @@ from django.middleware.csrf import get_token
 from django.views.decorators.http import require_GET
 from django.http import HttpResponse
 from django.core.serializers.json import DjangoJSONEncoder
+from urllib.parse import unquote
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -362,35 +363,69 @@ def save_file(request, file_id):
 @require_http_methods(["POST"])
 def delete_file(request, file_id):
     try:
+        logger.info(f"Attempting to delete file: {file_id}")
+        
+        # URL decode the file_id
+        file_id = unquote(file_id)
+        
         # Extract project_id and file_path from file_id
         parts = file_id.split('/', 1)
         if len(parts) != 2:
+            logger.error(f"Invalid file_id format: {file_id}")
             return json_response({'error': 'Invalid file ID format'}, status=400)
             
         project_id, file_path = parts
-        projects_dir = os.path.join(os.getcwd(), 'projects')
-        full_path = os.path.join(projects_dir, project_id, file_path)
         
+        # Get the absolute path to the projects directory
+        base_dir = os.path.abspath(os.getcwd())
+        projects_dir = os.path.normpath(os.path.join(base_dir, 'projects'))
+        project_dir = os.path.normpath(os.path.join(projects_dir, project_id))
+        full_path = os.path.normpath(os.path.join(project_dir, file_path))
+        
+        # Security check: ensure the file is within the projects directory
+        if not full_path.startswith(projects_dir):
+            logger.error(f"Security check failed: {full_path} is not within {projects_dir}")
+            return json_response({'error': 'Invalid file path'}, status=400)
+        
+        # Check if file exists
         if not os.path.exists(full_path):
+            logger.error(f"File not found: {full_path}")
             return json_response({'error': 'File not found'}, status=404)
             
-        if os.path.isdir(full_path):
-            shutil.rmtree(full_path)
-        else:
-            os.remove(full_path)
+        try:
+            if os.path.isdir(full_path):
+                # Check if directory is empty
+                if os.listdir(full_path):
+                    return json_response({'error': 'Cannot delete non-empty directory'}, status=400)
+                shutil.rmtree(full_path)
+                logger.info(f"Successfully deleted directory: {full_path}")
+            else:
+                os.remove(full_path)
+                logger.info(f"Successfully deleted file: {full_path}")
+                
+            return json_response({
+                'success': True,
+                'message': 'File deleted successfully',
+                'file': {
+                    'id': file_id,
+                    'name': os.path.basename(file_path),
+                    'path': file_path,
+                    'is_folder': os.path.isdir(full_path)
+                }
+            })
+        except PermissionError:
+            logger.error(f"Permission denied deleting file: {full_path}")
+            return json_response({'error': 'Permission denied'}, status=403)
+        except OSError as e:
+            logger.error(f"OS error deleting file {full_path}: {str(e)}")
+            return json_response({'error': f'Error deleting file: {str(e)}'}, status=500)
+        except Exception as e:
+            logger.error(f"Error deleting file {full_path}: {str(e)}")
+            return json_response({'error': f'Error deleting file: {str(e)}'}, status=500)
             
-        return json_response({
-            'success': True,
-            'message': 'File deleted successfully',
-            'file': {
-                'id': file_id,
-                'name': os.path.basename(file_path),
-                'path': file_path
-            }
-        })
     except Exception as e:
-        logger.error(f"Error deleting file {file_id}: {str(e)}")
-        return json_response({'error': str(e)}, status=500)
+        logger.error(f"Unexpected error in delete_file for {file_id}: {str(e)}")
+        return json_response({'error': f'Unexpected error: {str(e)}'}, status=500)
 
 @csrf_exempt
 @require_http_methods(["POST"])

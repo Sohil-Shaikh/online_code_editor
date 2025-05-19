@@ -54,11 +54,29 @@
         .resizer.active {
             background: #4CAF50;
         }
+        #editor {
+            flex: 1;
+            height: 100%;
+            position: relative;
+        }
         .CodeMirror {
             height: 100% !important;
             font-size: 14px;
-            flex: 1;
-            position: relative;
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .CodeMirror-scroll {
+            position: absolute;
+            overflow: auto !important;
+            height: 100%;
+            width: 100%;
+        }
+        .CodeMirror-sizer {
+            margin-bottom: 0 !important;
         }
         .tab-bar {
             background: #2d2d2d;
@@ -93,10 +111,10 @@
             background: #1e1e1e;
             border-top: 1px solid #3d3d3d;
             transform: translateY(100%);
-            transition: transform 0.3s ease, height 0.3s ease;
+            transition: transform 0.3s ease;
             display: flex;
             flex-direction: column;
-            z-index: 1000;
+            z-index: 2;
             overflow: hidden;
         }
         .terminal-container.visible {
@@ -123,6 +141,9 @@
             font-family: monospace;
             overflow-y: auto;
             background: #1e1e1e;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            z-index: 2;
         }
         .children {
             margin-left: 12px;
@@ -321,6 +342,55 @@
         .tab:hover {
             background: #4d4d4d;
         }
+        .file-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 8px;
+            cursor: pointer;
+        }
+        .file-item:hover {
+            background-color: #2d2d2d;
+        }
+        .file-item-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .folder-buttons {
+            display: none;
+            gap: 4px;
+        }
+        .file-item:hover .folder-buttons {
+            display: flex;
+        }
+        .folder-buttons button {
+            padding: 2px 6px;
+            font-size: 12px;
+        }
+        .folder-buttons button:hover {
+            background-color: #4CAF50;
+            border-color: #4CAF50;
+        }
+        .folder-children {
+            border-left: 1px solid #3d3d3d;
+            margin-left: 10px;
+        }
+        .folder-wrapper {
+            display: flex;
+            flex-direction: column;
+        }
+        .file-item i {
+            width: 16px;
+            text-align: center;
+            color: #c5c5c5;
+        }
+        .file-item i.fa-folder {
+            color: #4CAF50;
+        }
+        .file-item i.fa-folder-open {
+            color: #4CAF50;
+        }
     </style>
 </head>
 <body class="bg-dark text-light">
@@ -440,7 +510,7 @@
             matchBrackets: true,
             indentUnit: 4,
             tabSize: 4,
-            lineWrapping: true,
+            lineWrapping: false,
             foldGutter: true,
             gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
             extraKeys: {
@@ -452,7 +522,10 @@
                 'Ctrl-`': function(cm) {
                     toggleTerminal();
                 }
-            }
+            },
+            scrollbarStyle: 'native',
+            viewportMargin: Infinity,
+            fixedGutter: true
         });
 
         // State management
@@ -517,6 +590,8 @@
                     try {
                         await loadProjectFiles();
                         showSuccess('Project created successfully!');
+                        // Ensure cursor is visible after loading files
+                        setTimeout(ensureCursorVisible, 100);
                     } catch (error) {
                         console.error('Error loading project files:', error);
                         showError('Project created but failed to load files. Please refresh the page.');
@@ -689,14 +764,7 @@
                     if (data.error) {
                         terminal.innerHTML = `<div class="text-danger">Error: ${data.error}</div>`;
                     } else if (data.output) {
-                        // Format the output to preserve whitespace and line breaks
-                        const formattedOutput = data.output
-                            .replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;')
-                            .replace(/\n/g, '<br>')
-                            .replace(/\s/g, '&nbsp;');
-                        terminal.innerHTML = `<div class="text-light">${formattedOutput}</div>`;
+                        showTerminalOutput(data.output);
                     } else {
                         terminal.innerHTML = '<div class="text-light">No output</div>';
                     }
@@ -854,143 +922,83 @@
             }
         }
 
-        function renderFile(file, level = 0, parentPath = '') {
-            const div = document.createElement('div');
-            div.className = `file-tree-item ${file.is_folder ? 'folder' : 'file'}`;
-            
-            // Create the main item container
+        function renderFile(file, level = 0) {
             const itemContainer = document.createElement('div');
-            itemContainer.className = 'd-flex align-items-center w-100';
-            itemContainer.style.cursor = 'pointer';
+            itemContainer.className = 'file-item';
+            itemContainer.dataset.id = file.id;
+            itemContainer.dataset.name = file.name;
+            itemContainer.dataset.path = file.path;
+            itemContainer.dataset.isFolder = file.is_folder;
             
-            // Add indentation for nested items
-            if (level > 0) {
-                const indent = document.createElement('div');
-                indent.style.width = `${level * 20}px`;
-                indent.style.minWidth = `${level * 20}px`;
-                itemContainer.appendChild(indent);
-            }
-            
-            // Add folder/file icon
-            const icon = document.createElement('i');
-            let iconClass = 'fas ';
+            // Add indentation based on level
+            itemContainer.style.paddingLeft = `${level * 20}px`;
+
+            const itemContent = document.createElement('div');
+            itemContent.className = 'file-item-content';
+            itemContent.innerHTML = `
+                <i class="fas ${file.is_folder ? 'fa-folder' : 'fa-file'}"></i>
+                <span class="file-name">${file.name}</span>
+            `;
+            itemContainer.appendChild(itemContent);
+
+            // Add buttons for folders
             if (file.is_folder) {
-                iconClass += 'fa-folder';
-                icon.style.color = '#c5c5c5';
-            } else {
-                // Determine file type icon
-                const ext = file.name.split('.').pop().toLowerCase();
-                switch (ext) {
-                    case 'py':
-                        iconClass += 'fa-python';
-                        break;
-                    case 'js':
-                        iconClass += 'fa-js';
-                        break;
-                    case 'html':
-                        iconClass += 'fa-html5';
-                        break;
-                    case 'css':
-                        iconClass += 'fa-css3';
-                        break;
-                    case 'json':
-                        iconClass += 'fa-code';
-                        break;
-                    case 'md':
-                        iconClass += 'fa-markdown';
-                        break;
-                    case 'txt':
-                        iconClass += 'fa-file-alt';
-                        break;
-                    case 'jpg':
-                    case 'jpeg':
-                    case 'png':
-                    case 'gif':
-                        iconClass += 'fa-file-image';
-                        break;
-                    default:
-                        iconClass += 'fa-file';
-                }
-                icon.style.color = '#c5c5c5';
-            }
-            icon.className = iconClass + ' me-2';
-            
-            // Create file info container
-            const fileInfo = document.createElement('div');
-            fileInfo.className = 'file-info';
-            
-            // Add path
-            const path = document.createElement('span');
-            path.className = 'file-path';
-            path.textContent = file.path || file.name;
-            fileInfo.appendChild(path);
-            
-            // Add file/folder actions
-            const actions = document.createElement('div');
-            actions.className = file.is_folder ? 'folder-actions' : 'file-actions';
-            
-            // Add rename button
-            const renameBtn = document.createElement('button');
-            renameBtn.className = file.is_folder ? 'folder-action-btn rename' : 'file-action-btn rename';
-            renameBtn.innerHTML = '<i class="fas fa-edit"></i>';
-            renameBtn.title = 'Rename';
-            renameBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                renameFile(file);
-            });
-            
-            // Add delete button
-            const deleteBtn = document.createElement('button');
-            deleteBtn.className = file.is_folder ? 'folder-action-btn delete' : 'file-action-btn delete';
-            deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
-            deleteBtn.title = 'Delete';
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                deleteFile(file);
-            });
-            
-            actions.appendChild(renameBtn);
-            actions.appendChild(deleteBtn);
-            
-            itemContainer.appendChild(icon);
-            itemContainer.appendChild(fileInfo);
-            div.appendChild(itemContainer);
-            div.appendChild(actions);
-            
-            if (file.is_folder) {
-                // Add click handler for folder
-                itemContainer.addEventListener('click', (e) => {
+                const buttonContainer = document.createElement('div');
+                buttonContainer.className = 'folder-buttons';
+                buttonContainer.innerHTML = `
+                    <button class="btn btn-sm btn-outline-light new-file-btn" title="New File">
+                        <i class="fas fa-file"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-light new-folder-btn" title="New Folder">
+                        <i class="fas fa-folder"></i>
+                    </button>
+                `;
+                itemContainer.appendChild(buttonContainer);
+
+                // Add click handlers for the buttons
+                buttonContainer.querySelector('.new-file-btn').addEventListener('click', (e) => {
                     e.stopPropagation();
-                    const children = div.querySelector('.children');
-                    if (children) {
-                        children.classList.toggle('visible');
-                        // Toggle folder icon and open state
-                        icon.className = `fas ${children.classList.contains('visible') ? 'fa-folder-open' : 'fa-folder'} me-2`;
-                        div.classList.toggle('open');
+                    createNewFile(file);
+                });
+
+                buttonContainer.querySelector('.new-folder-btn').addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    createNewFolder(file);
+                });
+
+                // Create container for child items
+                const childrenContainer = document.createElement('div');
+                childrenContainer.className = 'folder-children';
+                childrenContainer.style.display = 'none';
+                
+                // If the folder has children, render them with increased level
+                if (file.children && file.children.length > 0) {
+                    file.children.forEach(child => {
+                        childrenContainer.appendChild(renderFile(child, level + 1));
+                    });
+                }
+                
+                // Add click handler for opening files or toggling folders
+                itemContainer.addEventListener('click', (e) => {
+                    if (file.is_folder) {
+                        childrenContainer.style.display = childrenContainer.style.display === 'none' ? 'block' : 'none';
+                        itemContent.querySelector('i').className = `fas ${childrenContainer.style.display === 'none' ? 'fa-folder' : 'fa-folder-open'}`;
+                    } else {
+                        openFile(file);
                     }
                 });
-                
-                // Add children container if there are children
-                if (file.children && file.children.length > 0) {
-                    const childrenDiv = document.createElement('div');
-                    childrenDiv.className = 'children';
-                    childrenDiv.style.marginLeft = '20px'; // Add left margin for indentation
-                    
-                    const newParentPath = parentPath ? `${parentPath}/${file.name}` : file.name;
-                    file.children.forEach(child => {
-                        childrenDiv.appendChild(renderFile(child, level + 1, newParentPath));
-                    });
-                    
-                    div.appendChild(childrenDiv);
-                }
+
+                // Append the children container after the folder item
+                const wrapper = document.createElement('div');
+                wrapper.className = 'folder-wrapper';
+                wrapper.appendChild(itemContainer);
+                wrapper.appendChild(childrenContainer);
+                return wrapper;
             } else {
-                // Add click handler for file
+                // For files, just add the click handler
                 itemContainer.addEventListener('click', () => openFile(file));
+                return itemContainer;
             }
-            
-            return div;
         }
 
         async function openFile(file) {
@@ -1021,15 +1029,25 @@
                     throw new Error('No project is currently selected');
                 }
 
-                // Ensure file ID is in the correct format: project_id/file_path
-                let fileId;
-                if (file.id && file.id.includes('/')) {
-                    fileId = file.id;
+                // Construct the file path properly for nested files
+                let filePath;
+                if (file.path) {
+                    // If path already exists, use it
+                    filePath = file.path;
+                } else if (file.parent_path) {
+                    // If file is in a nested folder, combine parent path with filename
+                    filePath = `${file.parent_path}/${file.name}`;
                 } else {
-                    // Construct the file ID using the current project and file path
-                    const filePath = file.path || file.name;
-                    fileId = `${currentProject.id}/${filePath}`;
+                    // If file is in root, just use the filename
+                    filePath = file.name;
                 }
+
+                // Clean up the file path (remove any double slashes and ensure proper format)
+                filePath = filePath.replace(/\/+/g, '/').replace(/^\//, '');
+                console.log('Cleaned file path:', filePath);
+
+                // Construct the file ID using project ID and file path
+                const fileId = `${currentProject.id}/${filePath}`;
                 console.log('Using file ID:', fileId);
 
                 const csrfToken = getCookie('csrftoken');
@@ -1039,7 +1057,7 @@
                     throw new Error('CSRF token not found');
                 }
 
-                // Use the correct URL pattern with /editor prefix
+                // First try to get the file content
                 const url = `/editor/files/${fileId}/`;
                 console.log('Making request to:', url);
 
@@ -1070,6 +1088,20 @@
                 console.log('Response data:', data);
 
                 if (!response.ok) {
+                    // If file not found, try to get it from the project files endpoint
+                    if (response.status === 404) {
+                        console.log('File not found, trying to get from project files...');
+                        const projectFilesResponse = await fetch(`/editor/projects/${currentProject.id}/files/`);
+                        const projectFilesData = await projectFilesResponse.json();
+                        
+                        // Find the file in the project files
+                        const foundFile = findFileInProject(projectFilesData.files, filePath);
+                        if (foundFile) {
+                            console.log('Found file in project files:', foundFile);
+                            // Try to open the file again with the correct path
+                            return openFile(foundFile);
+                        }
+                    }
                     throw new Error(data.error || `Server returned ${response.status}`);
                 }
 
@@ -1089,7 +1121,7 @@
                     id: fileId,
                     name: file.name || data.name || 'Untitled',
                     content: data.content || '',
-                    path: file.path || data.path || file.name,
+                    path: filePath,
                     is_folder: false
                 };
 
@@ -1107,6 +1139,20 @@
                 console.error('Error stack:', error.stack);
                 showError('An error occurred while opening the file: ' + error.message);
             }
+        }
+
+        // Helper function to find a file in the project files
+        function findFileInProject(files, targetPath) {
+            for (const file of files) {
+                if (file.path === targetPath) {
+                    return file;
+                }
+                if (file.children && file.children.length > 0) {
+                    const found = findFileInProject(file.children, targetPath);
+                    if (found) return found;
+                }
+            }
+            return null;
         }
 
         function addTab(file) {
@@ -1200,6 +1246,9 @@
             
             // Clear unsaved indicator for the new active file
             updateUnsavedIndicator(file.id, false);
+            
+            // Ensure cursor is visible after setting active file
+            setTimeout(ensureCursorVisible, 100);
         }
 
         function updateUnsavedIndicator(fileId, hasUnsavedChanges) {
@@ -1231,7 +1280,10 @@
                     openFiles.set(activeFile.id, savedFile);
                     updateUnsavedIndicator(activeFile.id, true);
                 }
-            }, 1000); // Auto-save after 1 second of no changes
+            }, 1000);
+            
+            // Ensure cursor is visible after changes
+            ensureCursorVisible();
         });
 
         function closeFile(file) {
@@ -1330,7 +1382,16 @@
         function showTerminalOutput(output) {
             const terminal = document.getElementById('terminal');
             terminal.style.display = 'block';
-            terminal.innerHTML = `<div class="text-light">${output}</div>`;
+            // Format the output to preserve whitespace and line breaks
+            const formattedOutput = output
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/\n/g, '<br>')
+                .replace(/\s/g, '&nbsp;');
+            terminal.innerHTML = `<div class="text-light">${formattedOutput}</div>`;
+            // Scroll to bottom of terminal
+            terminal.scrollTop = terminal.scrollHeight;
         }
 
         function showError(message) {
@@ -1360,11 +1421,8 @@
         }
 
         async function deleteFile(file) {
-            if (!confirm(`Are you sure you want to delete ${file.is_folder ? 'folder' : 'file'} "${file.name}"?`)) {
-                return;
-            }
-
             try {
+                console.log('Deleting file:', file);
                 // Ensure file ID is in the correct format: project_id/file_path
                 let fileId;
                 if (file.id && file.id.includes('/')) {
@@ -1376,8 +1434,7 @@
                     throw new Error('No project is currently selected');
                 }
 
-                console.log('Deleting file with ID:', fileId);
-
+                console.log('Using file ID for deletion:', fileId);
                 const response = await fetch(`/editor/files/${fileId}/delete/`, {
                     method: 'POST',
                     headers: {
@@ -1388,8 +1445,10 @@
                     credentials: 'same-origin'
                 });
                 
-                // Check if response is JSON
+                console.log('Response status:', response.status);
                 const contentType = response.headers.get('content-type');
+                console.log('Response content-type:', contentType);
+                
                 if (!contentType || !contentType.includes('application/json')) {
                     const text = await response.text();
                     console.error('Non-JSON response:', text);
@@ -1397,24 +1456,32 @@
                 }
                 
                 const data = await response.json();
-                console.log('Delete response:', data);
+                console.log('Response data:', data);
                 
-                if (response.ok && data.success) {
-                    // If the deleted file is currently open, close it
-                    if (activeFile && activeFile.id === fileId) {
-                        closeFile(file);
+                if (response.ok) {
+                    // Remove the file from open files if it was open
+                    if (openFiles.has(fileId)) {
+                        openFiles.delete(fileId);
+                        const tab = document.querySelector(`[data-file-id="${fileId}"]`);
+                        if (tab) {
+                            tab.remove();
+                        }
+                        if (activeFile && activeFile.id === fileId) {
+                            activeFile = null;
+                            editor.setValue('');
+                        }
                     }
-                    // Remove from open files if it was open
-                    openFiles.delete(fileId);
-                    // Reload the file tree
+                    
+                    // Reload project files
                     await loadProjectFiles();
-                    showSuccess(data.message || 'File deleted successfully');
+                    showSuccess(`${file.is_folder ? 'Folder' : 'File'} deleted successfully!`);
                 } else {
-                    showError(data.error || 'Failed to delete file');
+                    console.error('Delete failed:', data);
+                    showError(data.error || `Failed to delete ${file.is_folder ? 'folder' : 'file'}`);
                 }
             } catch (error) {
                 console.error('Error deleting file:', error);
-                showError('An error occurred while deleting the file: ' + error.message);
+                showError('An error occurred while deleting: ' + error.message);
             }
         }
 
@@ -1491,19 +1558,21 @@
         function toggleTerminal() {
             const terminalContainer = document.getElementById('terminalContainer');
             const isVisible = terminalContainer.classList.contains('visible');
-            const editorElement = document.querySelector('.CodeMirror');
             
             if (isVisible) {
                 terminalContainer.classList.remove('visible');
-                if (editorElement) {
-                    editorElement.style.height = '100%';
-                }
             } else {
                 terminalContainer.classList.add('visible');
-                if (editorElement) {
-                    const terminalHeight = parseInt(getComputedStyle(terminalContainer).height, 10);
-                    editorElement.style.height = `calc(100% - ${terminalHeight}px)`;
-                }
+            }
+            
+            updateEditorHeight();
+        }
+
+        // Add this function to handle cursor visibility
+        function ensureCursorVisible() {
+            if (editor) {
+                const cursor = editor.getCursor();
+                editor.scrollIntoView(cursor, 100);
             }
         }
 
@@ -1549,6 +1618,23 @@
         let startY;
         let startHeight;
 
+        function updateEditorHeight() {
+            const editorElement = document.querySelector('.CodeMirror');
+            if (editorElement) {
+                const terminalHeight = terminalContainer.classList.contains('visible') 
+                    ? parseInt(getComputedStyle(terminalContainer).height, 10) 
+                    : 0;
+                editorElement.style.height = `calc(100% - ${terminalHeight}px)`;
+                editor.refresh();
+                
+                // Ensure the editor's scroll area is properly sized
+                const scrollElement = editorElement.querySelector('.CodeMirror-scroll');
+                if (scrollElement) {
+                    scrollElement.style.height = `calc(100% - ${terminalHeight}px)`;
+                }
+            }
+        }
+
         terminalResizer.addEventListener('mousedown', (e) => {
             isTerminalResizing = true;
             startY = e.pageY;
@@ -1567,12 +1653,7 @@
             
             if (height >= minHeight && height <= maxHeight) {
                 terminalContainer.style.height = height + 'px';
-                // Adjust editor height
-                const editorElement = document.querySelector('.CodeMirror');
-                if (editorElement) {
-                    editorElement.style.height = `calc(100% - ${height}px)`;
-                    editor.refresh(); // Refresh CodeMirror to update layout
-                }
+                updateEditorHeight();
             }
         });
 
@@ -1581,9 +1662,14 @@
             isTerminalResizing = false;
             terminalResizer.classList.remove('active');
             document.body.style.cursor = '';
-            // Refresh CodeMirror after resizing
-            editor.refresh();
+            updateEditorHeight();
         });
+
+        // Update editor height when window is resized
+        window.addEventListener('resize', updateEditorHeight);
+
+        // Initialize editor height
+        setTimeout(updateEditorHeight, 0);
 
         // Add this function to your JavaScript code
         async function deleteProject() {
@@ -1602,8 +1688,7 @@
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Accept': 'application/json'
+                        'X-CSRFToken': getCookie('csrftoken')
                     },
                     credentials: 'same-origin'
                 });
@@ -1634,6 +1719,104 @@
 
         async function saveCurrentFile() {
             // Functionality removed
+        }
+
+        // Add these new functions for creating files and folders within a specific folder
+        async function createNewFile(parentFolder) {
+            if (!currentProject) {
+                showError('Please create or select a project first');
+                return;
+            }
+            
+            const fileName = prompt('Enter file name:');
+            if (!fileName) return;
+
+            try {
+                console.log('Creating file in folder:', parentFolder);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ 
+                        name: fileName,
+                        is_folder: false,
+                        parent_path: parentFolder.path || parentFolder.name
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    await loadProjectFiles();
+                    openFile(data);
+                    showSuccess('File created successfully!');
+                } else {
+                    console.error('File creation failed:', data);
+                    showError(data.error || 'Failed to create file');
+                }
+            } catch (error) {
+                console.error('Error creating file:', error);
+                showError('An error occurred while creating the file: ' + error.message);
+            }
+        }
+
+        async function createNewFolder(parentFolder) {
+            if (!currentProject) {
+                showError('Please create or select a project first');
+                return;
+            }
+            
+            const folderName = prompt('Enter folder name:');
+            if (!folderName) return;
+
+            try {
+                console.log('Creating folder in folder:', parentFolder);
+                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ 
+                        name: folderName,
+                        is_folder: true,
+                        parent_path: parentFolder.path || parentFolder.name
+                    })
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    await loadProjectFiles();
+                    showSuccess('Folder created successfully!');
+                } else {
+                    console.error('Folder creation failed:', data);
+                    showError(data.error || 'Failed to create folder');
+                }
+            } catch (error) {
+                console.error('Error creating folder:', error);
+                showError('An error occurred while creating the folder: ' + error.message);
+            }
+        }
+
+        // Add resize observer to handle dynamic height changes
+        const resizeObserver = new ResizeObserver(() => {
+            updateEditorHeight();
+        });
+
+        const editorElement = document.querySelector('.CodeMirror');
+        if (editorElement) {
+            resizeObserver.observe(editorElement);
         }
     </script>
 </body>
