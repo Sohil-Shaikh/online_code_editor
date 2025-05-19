@@ -1,31 +1,16 @@
 {
-    "version": 2,
     "builds": [
-        {
-            "src": "manage.py",
-            "use": "@vercel/python"
-        },
-        {
-            "src": "build_files.sh",
-            "use": "@vercel/static-build",
-            "config": {
-                "distDir": "staticfiles"
-            }
+      {
+        "src": "nline_code_editor/wsgi.py",
+        "use": "@vercel/python",
+        "config": {
+          "maxLambdaSize": "50mb"
         }
+      }
     ],
     "routes": [
-        {
-            "src": "/static/(.*)",
-            "dest": "/static/$1"
-        },
-        {
-            "src": "/(.*)",
-            "dest": "manage.py"
-        }
-    ],
-    "env": {
-        "PYTHONPATH": ".",
-        "DEBUG": "False",
-        "DJANGO_SETTINGS_MODULE": "online_code_editor.settings"
-    }
-}
+      { "src": "/static/(.*)", "dest": "/static/$1" },
+      { "src": "/(.*)", "dest": "online_code_editor/wsgi.py" }
+    ]
+  }
+  
