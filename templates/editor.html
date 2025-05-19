@@ -1,3 +1,4 @@
+{% csrf_token %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -149,7 +150,10 @@
             width: 100%;
         }
         .file-tree-item:hover {
-            background: #2a2d2e;
+            background: #23272b;
+        }
+        .file-tree-item.selected {
+            background: #333b44;
         }
         .file-tree-item .indent {
             width: 12px;
@@ -192,61 +196,32 @@
         .file-tree-item.folder.open {
             border-left: 2px solid #4CAF50;
         }
-        .folder-actions {
-            display: flex;
-            position: absolute;
-            right: 2px;
-            gap: 2px;
-            background: #1e1e1e;
-            padding: 0 1px;
-        }
-        .folder-action-btn {
-            background: none;
-            border: none;
-            color: #fff;
-            padding: 2px 4px;
-            cursor: pointer;
-            opacity: 0.7;
-            transition: opacity 0.2s;
-            font-size: 12px;
-        }
-        .folder-action-btn:hover {
-            opacity: 1;
-        }
-        .folder-action-btn.create-file {
-            color: #8ab4f8;
-        }
-        .folder-action-btn.create-folder {
-            color: #ffd700;
-        }
-        .file-actions {
-            display: none;
+        .file-actions, .folder-actions {
+            display: flex !important;
             position: absolute;
             right: 5px;
             gap: 5px;
             background: #1e1e1e;
             padding: 0 4px;
+            z-index: 2;
         }
-        .file-tree-item:hover .file-actions {
-            display: flex;
-        }
-        .file-action-btn {
+        .file-action-btn, .folder-action-btn {
             background: none;
             border: none;
             color: #fff;
             padding: 2px 4px;
             cursor: pointer;
-            opacity: 0.7;
+            opacity: 0.85;
             transition: opacity 0.2s;
-            font-size: 12px;
+            font-size: 13px;
         }
-        .file-action-btn:hover {
+        .file-action-btn:hover, .folder-action-btn:hover {
             opacity: 1;
         }
-        .file-action-btn.delete {
+        .file-action-btn.delete, .folder-action-btn.delete {
             color: #ff4444;
         }
-        .file-action-btn.rename {
+        .file-action-btn.rename, .folder-action-btn.rename {
             color: #44ff44;
         }
         .file-tree-item .file-info {
@@ -379,9 +354,6 @@
                     </button>
                     <button class="btn btn-sm btn-outline-light" id="newFolderBtn">
                         <i class="fas fa-folder"></i> New Folder
-                    </button>
-                    <button class="btn btn-sm btn-outline-light" id="saveBtn">
-                        <i class="fas fa-save"></i> Save
                     </button>
                     <div class="ms-auto">
                         <button class="btn btn-sm btn-outline-light" id="terminalToggleBtn">
@@ -615,7 +587,7 @@
             if (!folderName) return;
 
             try {
-                console.log('Creating folder:', folderName);
+                console.log('Creating folder in folder:', folderName, 'Parent:', currentProject);
                 const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
                     method: 'POST',
                     headers: {
@@ -626,7 +598,8 @@
                     credentials: 'same-origin',
                     body: JSON.stringify({ 
                         name: folderName,
-                        is_folder: true
+                        is_folder: true,
+                        parent_id: currentProject.id
                     })
                 });
                 
@@ -647,50 +620,26 @@
             }
         });
 
-        document.getElementById('saveBtn').addEventListener('click', async () => {
-            if (!activeFile) {
-                showError('No file is currently open');
-                return;
-            }
-
-            try {
-                console.log('Saving file:', activeFile);
-                const response = await fetch(`/editor/files/${activeFile.id}/save/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Accept': 'application/json'
-                    },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({
-                        content: editor.getValue()
-                    })
-                });
-                
-                console.log('Response status:', response.status);
-                const data = await response.json();
-                console.log('Response data:', data);
-                
-                if (response.ok) {
-                    const file = openFiles.get(activeFile.id);
-                    file.content = editor.getValue();
-                    openFiles.set(activeFile.id, file);
-                    updateUnsavedIndicator(activeFile.id, false);
-                    showSuccess('File saved successfully');
-                } else {
-                    showError(data.error || 'Failed to save file');
-                }
-            } catch (error) {
-                console.error('Error saving file:', error);
-                showError('An error occurred while saving the file');
-            }
-        });
-
         document.getElementById('runBtn').addEventListener('click', async () => {
             if (!activeFile) {
-                showError('No file is currently open');
+                showError('Please open a file first before running');
                 return;
+            }
+
+            if (activeFile.is_folder) {
+                showError('Cannot run a folder. Please open a file first.');
+                return;
+            }
+
+            // Open terminal panel
+            const terminalContainer = document.getElementById('terminalContainer');
+            if (!terminalContainer.classList.contains('visible')) {
+                terminalContainer.classList.add('visible');
+                const editorElement = document.querySelector('.CodeMirror');
+                if (editorElement) {
+                    const terminalHeight = parseInt(getComputedStyle(terminalContainer).height, 10);
+                    editorElement.style.height = `calc(100% - ${terminalHeight}px)`;
+                }
             }
 
             const terminal = document.getElementById('terminal');
@@ -721,6 +670,18 @@
                 });
                 
                 console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+                
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                console.log('Response content-type:', contentType);
+                
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Non-JSON response:', text);
+                    throw new Error('Server returned non-JSON response. Please check server logs.');
+                }
+                
                 const data = await response.json();
                 console.log('Response data:', data);
                 
@@ -728,7 +689,14 @@
                     if (data.error) {
                         terminal.innerHTML = `<div class="text-danger">Error: ${data.error}</div>`;
                     } else if (data.output) {
-                        terminal.innerHTML = `<div class="text-light">${data.output}</div>`;
+                        // Format the output to preserve whitespace and line breaks
+                        const formattedOutput = data.output
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/\n/g, '<br>')
+                            .replace(/\s/g, '&nbsp;');
+                        terminal.innerHTML = `<div class="text-light">${formattedOutput}</div>`;
                     } else {
                         terminal.innerHTML = '<div class="text-light">No output</div>';
                     }
@@ -839,6 +807,9 @@
                     <h5>
                         <i class="fas fa-project-diagram"></i>
                         ${currentProject.name}
+                        <button class="btn btn-sm btn-danger ms-2" onclick="deleteProject()">
+                            <i class="fas fa-trash"></i> Delete Project
+                        </button>
                     </h5>
                     <div class="project-info">
                         Created: ${new Date(currentProject.created_at).toLocaleString()}
@@ -948,69 +919,37 @@
             const fileInfo = document.createElement('div');
             fileInfo.className = 'file-info';
             
-            // Add name
-            const name = document.createElement('span');
-            name.className = 'file-name';
-            name.textContent = file.name;
-            
-            // Add path indicator if not at root level
-            if (parentPath) {
-                const pathIndicator = document.createElement('span');
-                pathIndicator.className = 'file-path';
-                pathIndicator.textContent = parentPath;
-                fileInfo.appendChild(pathIndicator);
-            }
-            
-            fileInfo.appendChild(name);
+            // Add path
+            const path = document.createElement('span');
+            path.className = 'file-path';
+            path.textContent = file.path || file.name;
+            fileInfo.appendChild(path);
             
             // Add file/folder actions
             const actions = document.createElement('div');
             actions.className = file.is_folder ? 'folder-actions' : 'file-actions';
             
-            if (file.is_folder) {
-                // Add create file button
-                const createFileBtn = document.createElement('button');
-                createFileBtn.className = 'folder-action-btn create-file';
-                createFileBtn.innerHTML = '<i class="fas fa-file-circle-plus"></i>';
-                createFileBtn.title = 'Create File';
-                createFileBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    createFileInFolder(file);
-                };
-                
-                // Add create folder button
-                const createFolderBtn = document.createElement('button');
-                createFolderBtn.className = 'folder-action-btn create-folder';
-                createFolderBtn.innerHTML = '<i class="fas fa-folder-circle-plus"></i>';
-                createFolderBtn.title = 'Create Folder';
-                createFolderBtn.onclick = (e) => {
-                    e.stopPropagation();
-                    createFolderInFolder(file);
-                };
-                
-                actions.appendChild(createFileBtn);
-                actions.appendChild(createFolderBtn);
-            }
-            
             // Add rename button
             const renameBtn = document.createElement('button');
-            renameBtn.className = 'file-action-btn rename';
+            renameBtn.className = file.is_folder ? 'folder-action-btn rename' : 'file-action-btn rename';
             renameBtn.innerHTML = '<i class="fas fa-edit"></i>';
             renameBtn.title = 'Rename';
-            renameBtn.onclick = (e) => {
+            renameBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                e.preventDefault();
                 renameFile(file);
-            };
+            });
             
             // Add delete button
             const deleteBtn = document.createElement('button');
-            deleteBtn.className = 'file-action-btn delete';
+            deleteBtn.className = file.is_folder ? 'folder-action-btn delete' : 'file-action-btn delete';
             deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
             deleteBtn.title = 'Delete';
-            deleteBtn.onclick = (e) => {
+            deleteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
+                e.preventDefault();
                 deleteFile(file);
-            };
+            });
             
             actions.appendChild(renameBtn);
             actions.appendChild(deleteBtn);
@@ -1037,6 +976,7 @@
                 if (file.children && file.children.length > 0) {
                     const childrenDiv = document.createElement('div');
                     childrenDiv.className = 'children';
+                    childrenDiv.style.marginLeft = '20px'; // Add left margin for indentation
                     
                     const newParentPath = parentPath ? `${parentPath}/${file.name}` : file.name;
                     file.children.forEach(child => {
@@ -1061,13 +1001,11 @@
                 return;
             }
 
-            // Check if file is a folder
             if (file.is_folder) {
                 console.log('Cannot open folder:', file.name);
                 return;
             }
 
-            // Check if file is already open
             if (openFiles.has(file.id)) {
                 console.log('File already open:', file.name);
                 setActiveFile(openFiles.get(file.id));
@@ -1076,48 +1014,97 @@
 
             try {
                 console.log('Opening file:', file);
-                const response = await fetch(`/editor/files/${file.id}/content/`);
-                console.log('Response status:', response.status);
-                
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    console.error('Open file error:', errorData);
-                    throw new Error(errorData.error || 'Failed to open file');
-                }
-                
-                const data = await response.json();
-                console.log('File content data:', data);
-                
-                // Validate response data
-                if (!data) {
-                    throw new Error('Invalid response from server');
+                console.log('File ID:', file.id);
+                console.log('Current project:', currentProject);
+
+                if (!currentProject) {
+                    throw new Error('No project is currently selected');
                 }
 
-                // Create a complete file object with all required properties
+                // Ensure file ID is in the correct format: project_id/file_path
+                let fileId;
+                if (file.id && file.id.includes('/')) {
+                    fileId = file.id;
+                } else {
+                    // Construct the file ID using the current project and file path
+                    const filePath = file.path || file.name;
+                    fileId = `${currentProject.id}/${filePath}`;
+                }
+                console.log('Using file ID:', fileId);
+
+                const csrfToken = getCookie('csrftoken');
+                console.log('CSRF Token:', csrfToken ? 'Present' : 'Missing');
+
+                if (!csrfToken) {
+                    throw new Error('CSRF token not found');
+                }
+
+                // Use the correct URL pattern with /editor prefix
+                const url = `/editor/files/${fileId}/`;
+                console.log('Making request to:', url);
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRFToken': csrfToken
+                    },
+                    credentials: 'same-origin'
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                console.log('Response content-type:', contentType);
+
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Non-JSON response:', text);
+                    throw new Error('Server returned non-JSON response. Please check server logs.');
+                }
+
+                const data = await response.json();
+                console.log('Response data:', data);
+
+                if (!response.ok) {
+                    throw new Error(data.error || `Server returned ${response.status}`);
+                }
+
+                if (!data || typeof data !== 'object') {
+                    throw new Error('Invalid response format from server');
+                }
+
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+
+                if (!data.content && typeof data.content !== 'string') {
+                    throw new Error('Invalid file content received from server');
+                }
+
                 const completeFile = {
-                    id: file.id,
+                    id: fileId,
                     name: file.name || data.name || 'Untitled',
                     content: data.content || '',
-                    path: file.path || data.path || '',
+                    path: file.path || data.path || file.name,
                     is_folder: false
                 };
 
-                // Validate the complete file object
                 if (!completeFile.id || !completeFile.name) {
                     throw new Error('Invalid file data received from server');
                 }
 
                 console.log('Complete file object:', completeFile);
-                
-                // Store the file in openFiles
                 openFiles.set(completeFile.id, completeFile);
-                
-                // Add tab and set as active
                 addTab(completeFile);
                 setActiveFile(completeFile);
-                
+
             } catch (error) {
                 console.error('Error opening file:', error);
+                console.error('Error stack:', error.stack);
                 showError('An error occurred while opening the file: ' + error.message);
             }
         }
@@ -1287,7 +1274,23 @@
             const ext = parts.pop().toLowerCase();
             console.log('File extension:', ext);
 
-            // Map extension to language for syntax highlighting
+            // Map extension to language for execution
+            const executionLanguageMap = {
+                'py': 'python',
+                'js': 'javascript',
+                'java': 'java',
+                'cpp': 'cpp',
+                'c': 'c',
+                'php': 'php',
+                'rb': 'ruby',
+                'go': 'go',
+                'rs': 'rust',
+                'swift': 'swift',
+                'kt': 'kotlin',
+                'ts': 'typescript'
+            };
+
+            // Map extension to language for editor syntax highlighting
             const editorLanguageMap = {
                 'py': 'python',
                 'js': 'javascript',
@@ -1307,22 +1310,6 @@
                 'ts': 'text/typescript',
                 'jsx': 'jsx',
                 'tsx': 'text/typescript-jsx'
-            };
-
-            // Map extension to language for execution
-            const executionLanguageMap = {
-                'py': 'python',
-                'js': 'javascript',
-                'java': 'java',
-                'cpp': 'cpp',
-                'c': 'c',
-                'php': 'php',
-                'rb': 'ruby',
-                'go': 'go',
-                'rs': 'rust',
-                'swift': 'swift',
-                'kt': 'kotlin',
-                'ts': 'typescript'
             };
 
             // Get the language for execution
@@ -1378,8 +1365,20 @@
             }
 
             try {
-                console.log('Deleting file/folder:', file);
-                const response = await fetch(`/editor/files/${file.id}/delete/`, {
+                // Ensure file ID is in the correct format: project_id/file_path
+                let fileId;
+                if (file.id && file.id.includes('/')) {
+                    fileId = file.id;
+                } else if (currentProject) {
+                    const filePath = file.path || file.name;
+                    fileId = `${currentProject.id}/${filePath}`;
+                } else {
+                    throw new Error('No project is currently selected');
+                }
+
+                console.log('Deleting file with ID:', fileId);
+
+                const response = await fetch(`/editor/files/${fileId}/delete/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1389,26 +1388,33 @@
                     credentials: 'same-origin'
                 });
                 
-                console.log('Response status:', response.status);
-                const data = await response.json();
-                console.log('Response data:', data);
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Non-JSON response:', text);
+                    throw new Error('Server returned non-JSON response. Please check server logs.');
+                }
                 
-                if (response.ok) {
+                const data = await response.json();
+                console.log('Delete response:', data);
+                
+                if (response.ok && data.success) {
                     // If the deleted file is currently open, close it
-                    if (activeFile && activeFile.id === file.id) {
+                    if (activeFile && activeFile.id === fileId) {
                         closeFile(file);
                     }
                     // Remove from open files if it was open
-                    openFiles.delete(file.id);
+                    openFiles.delete(fileId);
                     // Reload the file tree
                     await loadProjectFiles();
-                    showSuccess(`${file.is_folder ? 'Folder' : 'File'} deleted successfully`);
+                    showSuccess(data.message || 'File deleted successfully');
                 } else {
-                    showError(data.error || 'Failed to delete file/folder');
+                    showError(data.error || 'Failed to delete file');
                 }
             } catch (error) {
-                console.error('Error deleting file/folder:', error);
-                showError('An error occurred while deleting the file/folder: ' + error.message);
+                console.error('Error deleting file:', error);
+                showError('An error occurred while deleting the file: ' + error.message);
             }
         }
 
@@ -1419,8 +1425,20 @@
             }
 
             try {
-                console.log('Renaming file/folder:', file, 'to:', newName);
-                const response = await fetch(`/editor/files/${file.id}/rename/`, {
+                // Ensure file ID is in the correct format: project_id/file_path
+                let fileId;
+                if (file.id && file.id.includes('/')) {
+                    fileId = file.id;
+                } else if (currentProject) {
+                    const filePath = file.path || file.name;
+                    fileId = `${currentProject.id}/${filePath}`;
+                } else {
+                    throw new Error('No project is currently selected');
+                }
+
+                console.log('Renaming file with ID:', fileId);
+
+                const response = await fetch(`/editor/files/${fileId}/rename/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1431,109 +1449,42 @@
                     body: JSON.stringify({ new_name: newName })
                 });
                 
-                console.log('Response status:', response.status);
-                const data = await response.json();
-                console.log('Response data:', data);
+                // Check if response is JSON
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    console.error('Non-JSON response:', text);
+                    throw new Error('Server returned non-JSON response. Please check server logs.');
+                }
                 
-                if (response.ok) {
+                const data = await response.json();
+                console.log('Rename response:', data);
+                
+                if (response.ok && data.success) {
                     // Update the file in open files if it's open
-                    if (openFiles.has(file.id)) {
-                        const openFile = openFiles.get(file.id);
-                        openFile.name = newName;
-                        openFiles.set(file.id, openFile);
+                    if (openFiles.has(fileId)) {
+                        const openFile = openFiles.get(fileId);
+                        openFile.name = data.file.name;
+                        openFile.id = data.file.id;
+                        openFile.path = data.file.path;
+                        openFiles.set(data.file.id, openFile);
                         
                         // Update the tab name
-                        const tab = document.querySelector(`.tab[data-file-id="${file.id}"]`);
+                        const tab = document.querySelector(`.tab[data-file-id="${fileId}"]`);
                         if (tab) {
-                            tab.querySelector('span').textContent = newName;
+                            tab.dataset.fileId = data.file.id;
+                            tab.querySelector('span').textContent = data.file.name;
                         }
                     }
                     // Reload the file tree
                     await loadProjectFiles();
-                    showSuccess(`${file.is_folder ? 'Folder' : 'File'} renamed successfully`);
+                    showSuccess(data.message || 'File renamed successfully');
                 } else {
-                    showError(data.error || 'Failed to rename file/folder');
+                    showError(data.error || 'Failed to rename file');
                 }
             } catch (error) {
-                console.error('Error renaming file/folder:', error);
-                showError('An error occurred while renaming the file/folder: ' + error.message);
-            }
-        }
-
-        async function createFileInFolder(parentFolder) {
-            const fileName = prompt('Enter file name:');
-            if (!fileName) return;
-
-            try {
-                console.log('Creating file in folder:', fileName, 'Parent:', parentFolder);
-                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Accept': 'application/json'
-                    },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ 
-                        name: fileName,
-                        is_folder: false,
-                        parent_id: parentFolder.id
-                    })
-                });
-                
-                console.log('Response status:', response.status);
-                const data = await response.json();
-                console.log('Response data:', data);
-                
-                if (response.ok) {
-                    await loadProjectFiles();
-                    openFile(data);
-                    showSuccess('File created successfully!');
-                } else {
-                    console.error('File creation failed:', data);
-                    showError(data.error || 'Failed to create file');
-                }
-            } catch (error) {
-                console.error('Error creating file:', error);
-                showError('An error occurred while creating the file: ' + error.message);
-            }
-        }
-
-        async function createFolderInFolder(parentFolder) {
-            const folderName = prompt('Enter folder name:');
-            if (!folderName) return;
-
-            try {
-                console.log('Creating folder in folder:', folderName, 'Parent:', parentFolder);
-                const response = await fetch(`/editor/projects/${currentProject.id}/files/create/`, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('csrftoken'),
-                        'Accept': 'application/json'
-                    },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ 
-                        name: folderName,
-                        is_folder: true,
-                        parent_id: parentFolder.id
-                    })
-                });
-                
-                console.log('Response status:', response.status);
-                const data = await response.json();
-                console.log('Response data:', data);
-                
-                if (response.ok) {
-                    await loadProjectFiles();
-                    showSuccess('Folder created successfully!');
-                } else {
-                    console.error('Folder creation failed:', data);
-                    showError(data.error || 'Failed to create folder');
-                }
-            } catch (error) {
-                console.error('Error creating folder:', error);
-                showError('An error occurred while creating the folder: ' + error.message);
+                console.error('Error renaming file:', error);
+                showError('An error occurred while renaming the file: ' + error.message);
             }
         }
 
@@ -1633,6 +1584,57 @@
             // Refresh CodeMirror after resizing
             editor.refresh();
         });
+
+        // Add this function to your JavaScript code
+        async function deleteProject() {
+            if (!currentProject) {
+                showError('No project selected');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete the project "${currentProject.name}"? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                console.log('Deleting project:', currentProject);
+                const response = await fetch(`/editor/projects/${currentProject.id}/delete/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken'),
+                        'Accept': 'application/json'
+                    },
+                    credentials: 'same-origin'
+                });
+                
+                console.log('Response status:', response.status);
+                const data = await response.json();
+                console.log('Response data:', data);
+                
+                if (response.ok) {
+                    // Clear current project and open files
+                    currentProject = null;
+                    openFiles.clear();
+                    document.getElementById('tabBar').innerHTML = '';
+                    editor.setValue('');
+                    activeFile = null;
+                    
+                    // Reload the file explorer
+                    await loadProjectFiles();
+                    showSuccess('Project deleted successfully');
+                } else {
+                    showError(data.error || 'Failed to delete project');
+                }
+            } catch (error) {
+                console.error('Error deleting project:', error);
+                showError('An error occurred while deleting the project: ' + error.message);
+            }
+        }
+
+        async function saveCurrentFile() {
+            // Functionality removed
+        }
     </script>
 </body>
 </html> 
